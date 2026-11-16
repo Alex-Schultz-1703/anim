@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Kate</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #050204;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Georgia, serif;
+    }
+    #stage {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      z-index: 1;
+    }
+    .ui-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 20px;
+    }
+    .top-bar {
+      display: flex;
+      justify-content: flex-end;
+      width: 100%;
+    }
+    .bottom-bar {
+      display: flex;
+      justify-content: center;
+      width: 100%;
+      padding-bottom: 12px;
+    }
+    .control-btn {
+      pointer-events: auto;
+      background: rgba(255, 42, 109, 0.15);
+      border: 1px solid rgba(255, 120, 160, 0.35);
+      color: #ffe4e9;
+      font-size: 14px;
+      padding: 9px 20px;
+      border-radius: 24px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      cursor: pointer;
+      outline: none;
+      transition: all 0.25s ease;
+      letter-spacing: 0.5px;
+    }
+    .control-btn:active {
+      transform: scale(0.95);
+      background: rgba(255, 42, 109, 0.3);
+    }
+    .music-btn {
+      padding: 8px 14px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <div class="ui-layer">
+    <div class="top-bar">
+      <button id="musicBtn" class="control-btn music-btn">Музыка: Вкл</button>
+    </div>
+    <div class="bottom-bar">
+      <button id="restartBtn" class="control-btn">Перезапустить</button>
+    </div>
+  </div>
+
+  <audio id="bgMusic" src="music.mp3" preload="auto" autoplay loop></audio>
+
+  <script>
+    (function () {
+      const canvas = document.getElementById("stage");
+      const ctx = canvas.getContext("2d");
+      const audio = document.getElementById("bgMusic");
+      const musicBtn = document.getElementById("musicBtn");
+      const restartBtn = document.getElementById("restartBtn");
+
+      let width = 0;
+      let height = 0;
+      let dpr = 1;
+      let startTime = null;
+      let isPlaying = true;
+      let fadeInTimer = null;
+      let audioStarted = false;
+
+      function startVolumeFadeIn() {
+        if (!audio) return;
+        if (fadeInTimer) cancelAnimationFrame(fadeInTimer);
+
+        const startVol = 0.10;
+        const targetVol = 0.45;
+        const duration = 4000;
+        const startFadeTime = performance.now();
+
+        audio.volume = startVol;
+
+        function step(now) {
+          if (audio.paused || !isPlaying) return;
+          const progress = Math.min(1, (now - startFadeTime) / duration);
+          audio.volume = startVol + (targetVol - startVol) * progress;
+
+          if (progress < 1) {
+            fadeInTimer = requestAnimationFrame(step);
+          }
+        }
+
+        fadeInTimer = requestAnimationFrame(step);
+      }
+
+      function tryPlay() {
+        if (!audio || audioStarted || !isPlaying) return;
+        audio.volume = 0.10;
+        const p = audio.play();
+        if (p !== undefined) {
+          p.then(function () {
+            audioStarted = true;
+            musicBtn.textContent = "Музыка: Вкл";
+            startVolumeFadeIn();
+            removeInteractionListeners();
+          }).catch(function () {});
+        }
+      }
+
+      function removeInteractionListeners() {
+        window.removeEventListener("pointerdown", tryPlay);
+        window.removeEventListener("touchstart", tryPlay);
+        window.removeEventListener("click", tryPlay);
+        window.removeEventListener("keydown", tryPlay);
+        window.removeEventListener("wheel", tryPlay);
+      }
+
+      window.addEventListener("pointerdown", tryPlay);
+      window.addEventListener("touchstart", tryPlay, { passive: true });
+      window.addEventListener("click", tryPlay);
+      window.addEventListener("keydown", tryPlay);
+      window.addEventListener("wheel", tryPlay, { passive: true });
+
+      musicBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (audio.paused) {
+          audio.play();
+          isPlaying = true;
+          audioStarted = true;
+          musicBtn.textContent = "Музыка: Вкл";
+          startVolumeFadeIn();
+        } else {
+          audio.pause();
+          isPlaying = false;
+          musicBtn.textContent = "Музыка: Выкл";
+          if (fadeInTimer) cancelAnimationFrame(fadeInTimer);
+        }
+      });
+
+      restartBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        startTime = performance.now();
+        createParticles();
+        if (isPlaying && audio) {
+          audio.currentTime = 0;
+          audioStarted = true;
+          audio.play().catch(function () {});
+          startVolumeFadeIn();
+        }
+      });
+
+      const SPRITES = [];
+
+      function initSprites() {
+        SPRITES.length = 0;
+        const isMobile = window.innerWidth < 768;
+        const fontSizes = isMobile ? [8, 9, 11, 12, 14, 15] : [11, 13, 15, 17, 19, 21];
+        const colors = [
+          "#ffffff",
+          "#ffe4e9",
+          "#ffccd7",
+          "#ff99b3",
+          "#ff5e88",
+          "#ff2a6d",
+          "#ff7597"
+        ];
+
+        for (const phrase of ["I love you", "love you"]) {
+          for (const size of fontSizes) {
+            for (const col of colors) {
+              const off = document.createElement("canvas");
+              const octx = off.getContext("2d");
+              const pad = 16;
+
+              octx.font = "bold " + size + "px Georgia, serif";
+              const textMetrics = octx.measureText(phrase);
+              const textW = Math.ceil(textMetrics.width);
+              const textH = Math.ceil(size * 1.3);
+
+              off.width = textW + pad * 2;
+              off.height = textH + pad * 2;
+
+              octx.font = "bold " + size + "px Georgia, serif";
+              octx.textAlign = "center";
+              octx.textBaseline = "middle";
+
+              octx.shadowColor = "rgba(255, 42, 109, 0.75)";
+              octx.shadowBlur = isMobile ? 4 : 7;
+              octx.fillStyle = col;
+              octx.fillText(phrase, off.width / 2, off.height / 2);
+
+              octx.shadowBlur = 0;
+              octx.fillStyle = col;
+              octx.fillText(phrase, off.width / 2, off.height / 2);
+
+              SPRITES.push({
+                canvas: off,
+                w: off.width,
+                h: off.height
+              });
+            }
+          }
+        }
+      }
+
+      function getHeartPoint(t, scaleX, scaleY) {
+        const x = 16 * Math.pow(Math.sin(t), 3);
+        const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+        return {
+          x: x * scaleX,
+          y: y * scaleY
+        };
+      }
+
+      let particles = [];
+
+      function createParticles() {
+        particles = [];
+        const isMobile = width < 768;
+
+        let scaleX, scaleY;
+        if (isMobile) {
+          scaleX = width * 0.0215;
+          scaleY = width * 0.0215;
+        } else {
+          const minDim = Math.min(width, height);
+          scaleX = minDim * 0.025;
+          scaleY = minDim * 0.025;
+        }
+
+        const totalCount = isMobile ? 320 : 520;
+        const boundaryCount = Math.floor(totalCount * 0.42);
+        const innerCount = totalCount - boundaryCount;
+
+        const cx = width / 2;
+        const cy = height / 2 + (isMobile ? -18 : -8);
+
+        for (let i = 0; i < boundaryCount; i++) {
+          const t = (i / boundaryCount) * Math.PI * 2;
+          const pos = getHeartPoint(t, scaleX, scaleY);
+          const jitterX = (Math.random() - 0.5) * (isMobile ? 8 : 10);
+          const jitterY = (Math.random() - 0.5) * (isMobile ? 8 : 10);
+
+          const angle = Math.random() * Math.PI * 2;
+          const burstDist = 30 + Math.random() * (Math.min(width, height) * 0.28);
+          const launchDelay = 0.9 + Math.random() * 2.1;
+          const flightDuration = 1.6 + Math.random() * 0.8;
+          const sprite = SPRITES[Math.floor(Math.random() * SPRITES.length)];
+
+          particles.push({
+            tx: cx + pos.x + jitterX,
+            ty: cy + pos.y + jitterY,
+            ox: cx,
+            oy: cy,
+            burstX: cx + Math.cos(angle) * burstDist,
+            burstY: cy + Math.sin(angle) * burstDist,
+            x: cx,
+            y: cy,
+            sprite: sprite,
+            delay: launchDelay,
+            duration: flightDuration,
+            rotation: (Math.random() - 0.5) * (isMobile ? 0.25 : 0.35),
+            currentRot: 0,
+            scale: 0,
+            alpha: 0,
+            floatSeed: Math.random() * 100,
+            pulseWeight: 0.85 + Math.random() * 0.3
+          });
+        }
+
+        for (let i = 0; i < innerCount; i++) {
+          const t = Math.random() * Math.PI * 2;
+          const r = Math.sqrt(0.14 + 0.78 * Math.random());
+          const basePos = getHeartPoint(t, scaleX, scaleY);
+          const innerFactor = r * (0.84 + Math.random() * 0.16);
+
+          const rx = basePos.x * innerFactor + (Math.random() - 0.5) * (isMobile ? 10 : 14);
+          const ry = basePos.y * innerFactor + (Math.random() - 0.5) * (isMobile ? 10 : 14);
+
+          const distCenter = Math.sqrt(rx * rx + ry * ry);
+          if (distCenter < (isMobile ? 36 : 46)) {
+            continue;
+          }
+
+          const angle = Math.random() * Math.PI * 2;
+          const burstDist = 20 + Math.random() * (Math.min(width, height) * 0.24);
+          const launchDelay = 1.0 + Math.random() * 2.3;
+          const flightDuration = 1.6 + Math.random() * 0.9;
+          const sprite = SPRITES[Math.floor(Math.random() * SPRITES.length)];
+
+          particles.push({
+            tx: cx + rx,
+            ty: cy + ry,
+            ox: cx,
+            oy: cy,
+            burstX: cx + Math.cos(angle) * burstDist,
+            burstY: cy + Math.sin(angle) * burstDist,
+            x: cx,
+            y: cy,
+            sprite: sprite,
+            delay: launchDelay,
+            duration: flightDuration,
+            rotation: (Math.random() - 0.5) * (isMobile ? 0.22 : 0.3),
+            currentRot: 0,
+            scale: 0,
+            alpha: 0,
+            floatSeed: Math.random() * 100,
+            pulseWeight: 0.5 + Math.random() * 0.4
+          });
+        }
+      }
+
+      function resize() {
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(height * dpr);
+        canvas.style.width = width + "px";
+        canvas.style.height = height + "px";
+        initSprites();
+        createParticles();
+      }
+
+      function easeOutCubic(x) {
+        return 1 - Math.pow(1 - x, 3);
+      }
+
+      function easeInOutQuad(x) {
+        return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+      }
+
+      function drawAmbientGlow(elapsed, isMobile) {
+        const cx = width / 2;
+        const cy = height / 2;
+        const maxR = Math.min(width, height) * (isMobile ? 0.8 : 0.65);
+
+        let glowIntensity = Math.min(1, elapsed / 2.5);
+        if (elapsed > 4.5) {
+          const beatCycle = ((elapsed - 4.5) * 1.25) % 1;
+          const beatGlow = Math.sin(beatCycle * Math.PI) * 0.12;
+          glowIntensity = 0.88 + beatGlow;
+        }
+
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
+        grad.addColorStop(0, "rgba(180, 20, 60, " + (0.45 * glowIntensity) + ")");
+        grad.addColorStop(0.35, "rgba(110, 10, 40, " + (0.25 * glowIntensity) + ")");
+        grad.addColorStop(0.7, "rgba(45, 5, 20, " + (0.12 * glowIntensity) + ")");
+        grad.addColorStop(1, "rgba(5, 2, 4, 0)");
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, width, height);
+      }
+
+      function drawCenterName(elapsed, isMobile) {
+        const cx = width / 2;
+        const cy = height / 2 + (isMobile ? -18 : -8);
+
+        let nameAlpha = Math.min(1, elapsed / 1.2);
+        let nameScale = 1;
+
+        if (elapsed > 4.5) {
+          const beatTime = (elapsed - 4.5) * 1.25;
+          const phase = beatTime % 1;
+          if (phase < 0.15) {
+            nameScale = 1 + Math.sin((phase / 0.15) * Math.PI) * 0.08;
+          } else if (phase < 0.3) {
+            nameScale = 1 + Math.sin(((phase - 0.15) / 0.15) * Math.PI) * 0.04;
+          }
+        }
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(nameScale, nameScale);
+
+        const fontSize = isMobile ? 36 : 54;
+        ctx.font = "italic bold " + fontSize + "px Georgia, serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        ctx.shadowColor = "rgba(255, 60, 110, 0.9)";
+        ctx.shadowBlur = 22;
+        ctx.fillStyle = "rgba(255, 255, 255, " + nameAlpha + ")";
+        ctx.fillText("Kate", 0, 0);
+
+        ctx.shadowColor = "rgba(255, 180, 200, 0.8)";
+        ctx.shadowBlur = 8;
+        ctx.fillText("Kate", 0, 0);
+
+        ctx.restore();
+      }
+
+      function render(timestamp) {
+        if (!startTime) startTime = timestamp;
+        const elapsed = (timestamp - startTime) / 1000;
+        const isMobile = width < 768;
+
+        ctx.save();
+        ctx.scale(dpr, dpr);
+
+        ctx.fillStyle = "#060205";
+        ctx.fillRect(0, 0, width, height);
+
+        drawAmbientGlow(elapsed, isMobile);
+
+        const cx = width / 2;
+        const cy = height / 2 + (isMobile ? -18 : -8);
+
+        let heartPulse = 1;
+        if (elapsed > 4.5) {
+          const beatTime = (elapsed - 4.5) * 1.25;
+          const phase = beatTime % 1;
+          if (phase < 0.15) {
+            heartPulse = 1 + Math.sin((phase / 0.15) * Math.PI) * 0.065;
+          } else if (phase < 0.3) {
+            heartPulse = 1 + Math.sin(((phase - 0.15) / 0.15) * Math.PI) * 0.035;
+          }
+        }
+
+        for (let i = 0; i < particles.length; i++) {
+          const p = particles[i];
+
+          if (elapsed < p.delay) {
+            continue;
+          }
+
+          const localTime = elapsed - p.delay;
+          const progress = Math.min(1, localTime / p.duration);
+
+          if (progress < 0.32) {
+            const burstProg = progress / 0.32;
+            const easeBurst = easeOutCubic(burstProg);
+            p.x = p.ox + (p.burstX - p.ox) * easeBurst;
+            p.y = p.oy + (p.burstY - p.oy) * easeBurst;
+            p.scale = easeBurst;
+            p.alpha = Math.min(1, burstProg * 1.4);
+            p.currentRot = p.rotation * easeBurst;
+          } else {
+            const convergeProg = (progress - 0.32) / 0.68;
+            const easeConv = easeInOutQuad(convergeProg);
+            p.x = p.burstX + (p.tx - p.burstX) * easeConv;
+            p.y = p.burstY + (p.ty - p.burstY) * easeConv;
+            p.scale = 1;
+            p.alpha = 1;
+            p.currentRot = p.rotation;
+          }
+
+          let drawX = p.x;
+          let drawY = p.y;
+          let currentScale = p.scale;
+
+          if (progress >= 1) {
+            const dx = p.tx - cx;
+            const dy = p.ty - cy;
+            const effectivePulse = 1 + (heartPulse - 1) * p.pulseWeight;
+            drawX = cx + dx * effectivePulse;
+            drawY = cy + dy * effectivePulse;
+
+            const floatY = Math.sin(elapsed * 2 + p.floatSeed) * 1.1;
+            const floatX = Math.cos(elapsed * 1.5 + p.floatSeed) * 0.7;
+            drawX += floatX;
+            drawY += floatY;
+          }
+
+          ctx.save();
+          ctx.translate(drawX, drawY);
+          ctx.rotate(p.currentRot);
+          ctx.scale(currentScale, currentScale);
+          ctx.globalAlpha = p.alpha;
+
+          ctx.drawImage(
+            p.sprite.canvas,
+            -p.sprite.w / 2,
+            -p.sprite.h / 2
+          );
+
+          ctx.restore();
+        }
+
+        drawCenterName(elapsed, isMobile);
+
+        ctx.restore();
+        requestAnimationFrame(render);
+      }
+
+      window.addEventListener("resize", resize);
+
+      function start() {
+        resize();
+        tryPlay();
+        requestAnimationFrame(render);
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start);
+      } else {
+        start();
+      }
+    })();
+  </script>
+</body>
+</html>
